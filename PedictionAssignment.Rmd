@@ -1,0 +1,129 @@
+---
+title: "Project PredictionAssignment"
+author: "B. van Bekkum"
+date: "oct 12 2018"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE)
+library(AppliedPredictiveModeling); library(ElemStatLearn)
+library(caret); library(pgmm); library(rpart);library(gbm)
+library(lubridate); library(forecast); library(e1071)
+library(elasticnet); library(kernlab); library(rattle)
+```
+# Introduction
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+# Preparation
+## Step 1: load and clean the data
+```{r}
+TrainRaw <- read.csv('C:/Users/bart/Dropbox/Coursera/8_ML/pml-training.csv')
+TestRaw  <- read.csv('C:/Users/bart/Dropbox/Coursera/8_ML/pml-testing.csv')
+dim(TrainRaw)
+```
+In the documentation the explanation of the column classes is found:
+
+* exactly according to the specification (Class A)
+* throwing the elbows to the front (Class B), 
+* lifting the dumbbell only halfway (Class C),
+* lowering the dumbbell only halfway (Class D) and
+* throwing the hips to the front (Class E).
+
+The datasets are cleaned because the raw data contains a lot of calculated columns that are mostly all NA. The relevant columns are subsetted:
+```{r}
+y <- names(c(TrainRaw[,grepl('^roll_',  names(TrainRaw))],
+             TrainRaw[,grepl('^pitch_', names(TrainRaw))], 
+             TrainRaw[,grepl('^yaw_',   names(TrainRaw))],
+             TrainRaw[,grepl('^total_', names(TrainRaw))],
+             TrainRaw[,grepl('^gyros_', names(TrainRaw))], 
+             TrainRaw[,grepl('^accel_', names(TrainRaw))], 
+             TrainRaw[,grepl('^magnet_',names(TrainRaw))])
+             )
+DFTrain        <- TrainRaw[,y]
+DFTrain$classe <- TrainRaw$classe
+DFTest         <- TestRaw[,y]
+DFTest$classe  <- TestRaw$classe
+dim(DFTrain); dim(DFTest)
+```
+
+## Step 2: create a trainingset and a testset 
+The original trainingset is splitted in a training and a testset (the original testset is set aside for the final prediction):
+```{r}
+set.seed(1213)
+inTrain <- createDataPartition(y=DFTrain$classe, p=0.75, list=FALSE)
+training <- DFTrain[inTrain,]
+testing <- DFTrain[-inTrain,]
+dim(training); dim(testing)
+```
+
+# Build models
+First I build a simple tree-model and try to enhance it with cross-validation. Then I try a more complex model.
+
+## Model 1: a basic tree-model without cross validation
+```{r cache = TRUE}
+modfitRP <- train(classe~., data=training, method="rpart")
+modfitRP$finalModel
+plot(modfitRP$finalModel)
+text(modfitRP$finalModel)
+```
+
+## Model 2: add cross validation to the basic tree-model
+```{r cache = TRUE}
+controlRCV  <- trainControl(method="repeatedcv", number=10, repeats = 3)
+modfitRPRCV <- train(classe~., data=training, method="rpart", trControl=controlRCV, tuneLength = 15)
+modfitRPRCV$finalModel
+fancyRpartPlot(modfitRPRCV$finalModel, cex=0.2, main = "Plot Rpart with cross-validation")
+```
+
+## Model 3: a tree-model with bagging and cross-validation
+```{r cache = TRUE}
+controlTB  <- trainControl(method="repeatedcv", number=10, repeats = 3)
+modfitTB   <- train(classe~., data=training, method="treebag", trControl=controlTB)
+modfitTB
+```
+
+# Check performance of models
+## Model 1: accuracy of basic tree-model without cross-validation
+```{r}
+predictionRP <- predict(modfitRP, testing)
+confmatrRP <- confusionMatrix(predictionRP, testing$classe)
+confmatrRP
+```
+The accuracy of the basic treemodel is very low: `r confmatrRP$overall[1]`
+
+## Model 2: accuracy basic tree-model with cross-validation
+```{r}
+predictionRPRCV <- predict(modfitRPRCV, testing)
+confmatrRPRCV <- confusionMatrix(predictionRPRCV, testing$classe)
+confmatrRPRCV
+```
+The accuracy of the basic tree-model has been improved with the cross-validation: `r confmatrRPRCV$overall[1]`
+
+
+## Model 3: accuracy of the treebag model with cross-validation
+```{r}
+predictionTB <- predict(modfitTB, testing)
+confmatrTB <- confusionMatrix(predictionTB, testing$classe)
+confmatrTB
+```
+The accuracy of this model is a lot better: `r confmatrTB$overall[1]`
+
+For this model we compare the in- and out-of-sample errors:
+
+* The out-of-sample error is: `r (1-confmatrTB$overall[1])`
+* The in-sample-error is:
+```{r}
+predictionTB2 <- predict(modfitTB, training)
+confmatrTB2   <- confusionMatrix(predictionTB2, training$classe)
+(1-confmatrTB2$overall[1])
+
+```
+
+This model is now used to predict the 20 testcases:
+```{r}
+predictionRPRCVTST <- predict(modfitRPRCV, DFTest)
+as.data.frame(predictionRPRCVTST)
+```
+

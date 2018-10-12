@@ -1,0 +1,16 @@
+base
+AppliedPredictiveModeling
+ElemStatLearn
+lattice
+ggplot2
+caret
+pgmm
+rpart
+gbm
+lubridate
+forecast
+e1071
+lars
+elasticnet
+kernlab
+rattle
